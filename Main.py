@@ -7,6 +7,9 @@
 # 常量
 SHOW_LOG = True    # 日志输出标识
 TARGET = 'label'    # 标签
+ALGORITHMS = {
+    'RFC': __import__('sklearn.ensemble', globals={}, locals={}, fromlist=['ensemble']).RandomForestClassifier
+}
 
 def Main():
 
@@ -107,38 +110,60 @@ def Main():
     poly_data = pd.concat([pre_data, polynomial_data], axis=1, ignore_index=False)
     print('加入多项式特征后数据：\n', poly_data) if SHOW_LOG == True else ()
 
-    # 方差选择：只筛掉方差为0，即只有一种取值的特征
+    # 过滤法：方差选择、卡方检验（适合初期特征数目较多时，筛掉与标签明显不相关的特征）
+    # 1. 方差选择：只筛掉方差为0，即只有一种取值的特征
     VARIANCE_THRESHOLD = 0    # 方差选择阈值
     from sklearn.feature_selection import VarianceThreshold
     variancethreshold = VarianceThreshold(threshold=VARIANCE_THRESHOLD)
     var_sel_data = pd.DataFrame(data=variancethreshold.fit_transform(poly_data), columns=(poly_data.columns[item] for item in variancethreshold.get_support(indices=True)))
     print('方差选择后的数据：\n', var_sel_data) if SHOW_LOG == True else ()
 
-    # 卡方检验特征选择
-    plotChi2(3, 1, -1, var_sel_data, ori_data[TARGET], 10, 2)
-    CHI_K = 2    # k由上图曲线的高点决定
-    from sklearn.feature_selection import SelectKBest
-    from sklearn.feature_selection import chi2
-    selectkbest = SelectKBest(chi2, k=CHI_K)
-    chi2_sel_data = pd.DataFrame(data=selectkbest.fit_transform(var_sel_data, ori_data[TARGET]), columns=(var_sel_data.columns[item] for item in selectkbest.get_support(indices=True)))
+    # 2. 卡方检验特征选择
+    chi2_sel_data = var_sel_data
+    from sklearn.feature_selection import mutual_info_classif as MIC
+    mic = MIC(var_sel_data, ori_data[TARGET])    # 互信息法验证特征与标签的相关性（线性和非线性），0为相互独立，1为相关
+    CHI_K = mic.shape[0] - (mic <= 0).sum()    # k值由特征总数减去p>0.05的特征数得到
+    print('卡方选择的k值：\n', CHI_K) if SHOW_LOG == True else ()
+    if CHI_K > 0:
+        from sklearn.feature_selection import SelectKBest
+        from sklearn.feature_selection import chi2
+        selectkbest = SelectKBest(chi2, k=CHI_K)
+        chi2_sel_data = pd.DataFrame(data=selectkbest.fit_transform(var_sel_data, ori_data[TARGET]), columns=(var_sel_data.columns[item] for item in selectkbest.get_support(indices=True)))
+    else:
+        print('无需进行卡方检验选择！') if SHOW_LOG == True else ()
     print('卡方选择后的数据：\n', chi2_sel_data) if SHOW_LOG == True else ()
+
+    # 嵌入法：利用算法模型真实验证特征相关性，得到feature_importance（适合特征经过粗筛后，寻找最为相关的特征，）
+    EMB_ALGORITHM = 'RFC'
+    EMB_N_ESTIMATORS = 10
+    EMB_PARTITIONS = 10
+    EMB_CV = 2
+    plotEmbedded(EMB_ALGORITHM, EMB_N_ESTIMATORS, chi2_sel_data, ori_data[TARGET], EMB_PARTITIONS, EMB_CV)
 
     # ------------------------------------------------------------------- #
 
-def plotChi2(maxK, minK, step, X, y, n_estimators, cv):
-    # 选择不同的k值，画出验证集分数随之变化的曲线，以帮助找到最优k，如曲线随k值增大呈上升趋势，则说明所有特征与目标都有关联，放弃卡方选择
-    from sklearn.feature_selection import SelectKBest
-    from sklearn.feature_selection import chi2
-    import matplotlib.pyplot as plt
-    from sklearn.model_selection import cross_val_score
-    from sklearn.ensemble import RandomForestClassifier as RFC
+def plotEmbedded(algorithm, n_estimators, X, y, partitions, cv):
+    # 嵌入法超参数学习曲线
+    # 参数：
+    #   algorithm：模型算法，包括'RFC'（待完善）；
+    #   n_estimators：算法复杂度；
+    #   partitions：feature_importance从0到max之间取点数
+    #   交叉验证折数
+    import numpy as np
+    estimator = ALGORITHMS.get(algorithm)(n_estimators=n_estimators, random_state=0)
+    threshold = np.linspace(0, estimator.fit(X, y).feature_importances_.max(), partitions)
+    print(estimator.fit(X, y).feature_importances_)
     score = []
-    for i in range(maxK, minK, step):
-        selectkbest = SelectKBest(chi2, k=i).fit_transform(X, y)
-        once = cross_val_score(RFC(n_estimators=n_estimators, random_state=0), selectkbest, y, cv=cv).mean()
+    from sklearn.feature_selection import SelectFromModel
+    from sklearn.model_selection import cross_val_score
+    for i in threshold:
+        x_embedded = SelectFromModel(estimator, threshold=i).fit_transform(X, y)
+        once = cross_val_score(estimator, x_embedded, y, cv=cv).mean()
         score.append(once)
-    plt.plot(range(maxK, minK, step), score)
+    import matplotlib.pyplot as plt
+    plt.plot(threshold, score)
     plt.show()
+
 
 if __name__ == "__main__":
     Main()
