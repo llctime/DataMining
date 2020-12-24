@@ -138,17 +138,36 @@ def Main():
     EMB_N_ESTIMATORS = 10
     EMB_PARTITIONS = 10
     EMB_CV = 2
-    plotEmbedded(EMB_ALGORITHM, EMB_N_ESTIMATORS, chi2_sel_data, ori_data[TARGET], EMB_PARTITIONS, EMB_CV)
+    emb_threshold = plotEmbedded(EMB_ALGORITHM, EMB_N_ESTIMATORS, chi2_sel_data, ori_data[TARGET], EMB_PARTITIONS, EMB_CV)
+    print('嵌入法的阈值为：\n', emb_threshold) if SHOW_LOG == True else ()
+    from sklearn.feature_selection import SelectFromModel
+    emb_estimator = ALGORITHMS.get(EMB_ALGORITHM)(n_estimators=EMB_N_ESTIMATORS, random_state=0)
+    selectfrommodel = SelectFromModel(emb_estimator, threshold=emb_threshold)
+    emb_sel_data = pd.DataFrame(data=selectfrommodel.fit_transform(chi2_sel_data, ori_data[TARGET]), columns=(chi2_sel_data.columns[item] for item in selectfrommodel.get_support(indices=True)))
+    print('嵌入法选择后的数据：\n', emb_sel_data) if SHOW_LOG == True else ()
 
+    # 包装法：黑盒选取特征子集，并有专用的算法RFE进行筛选，不需要学习超参数（即阈值）
+    WRAP_ALGORITHM = 'RFC'
+    WRAP_N_ESTIMATORS = 10
+    WRAP_STEP = 1    # RFE每次迭代时筛掉多少个特征
+    WRAP_CV = 2
+    wrap_n_features_to_select = plotWrapper(WRAP_ALGORITHM, WRAP_N_ESTIMATORS, chi2_sel_data, ori_data[TARGET], WRAP_STEP, WRAP_CV)
+    from sklearn.feature_selection import RFE
+    wrap_estimator = ALGORITHMS.get(WRAP_ALGORITHM)(n_estimators=WRAP_N_ESTIMATORS, random_state=0)
+    rfe = RFE(wrap_estimator, wrap_n_features_to_select, step=WRAP_STEP)
+    print('包装法特征重要性排名：\n', rfe.fit(chi2_sel_data, ori_data[TARGET]).ranking_) if SHOW_LOG == True else ()
+    wrap_sel_data = pd.DataFrame(data=rfe.fit_transform(chi2_sel_data, ori_data[TARGET]), columns=(chi2_sel_data.columns[item] for item in rfe.get_support(indices=True)))
+    print('包装法选择后的数据：\n', wrap_sel_data) if SHOW_LOG == True else ()
     # ------------------------------------------------------------------- #
 
 def plotEmbedded(algorithm, n_estimators, X, y, partitions, cv):
-    # 嵌入法超参数学习曲线
+    # time warning #
+    # 嵌入法超参数(importance阈值)学习曲线
     # 参数：
     #   algorithm：模型算法，包括'RFC'（待完善）；
-    #   n_estimators：算法复杂度；
+    #   n_estimators：评估器；
     #   partitions：feature_importance从0到max之间取点数
-    #   交叉验证折数
+    #   cv：交叉验证折数
     import numpy as np
     estimator = ALGORITHMS.get(algorithm)(n_estimators=n_estimators, random_state=0)
     threshold = np.linspace(0, estimator.fit(X, y).feature_importances_.max(), partitions)
@@ -156,13 +175,46 @@ def plotEmbedded(algorithm, n_estimators, X, y, partitions, cv):
     score = []
     from sklearn.feature_selection import SelectFromModel
     from sklearn.model_selection import cross_val_score
+    highest_score = 0
+    highest_threshold = 0
     for i in threshold:
-        x_embedded = SelectFromModel(estimator, threshold=i).fit_transform(X, y)
-        once = cross_val_score(estimator, x_embedded, y, cv=cv).mean()
+        X_embedded = SelectFromModel(estimator, threshold=i).fit_transform(X, y)
+        once = cross_val_score(estimator, X_embedded, y, cv=cv).mean()
         score.append(once)
+        if once > highest_score:
+            highest_score = once
+            highest_threshold = i
     import matplotlib.pyplot as plt
     plt.plot(threshold, score)
     plt.show()
+    return highest_threshold
+
+def plotWrapper(algorithm, n_estimators, X, y, step, cv):
+    # time warning #
+    # 包装法剩余特征参数(N_FEATURES_TO_SELECT)学习曲线
+    # 参数：
+    #   algorithm：模型算法，包括'RFC'（待完善）；
+    #   n_estimators：评估器；
+    #   step：每次迭代消除的特征数
+    #   cv：交叉验证折数
+    import numpy as np
+    estimator = ALGORITHMS.get(algorithm)(n_estimators=n_estimators, random_state=0)
+    score = []
+    from sklearn.feature_selection import RFE
+    from sklearn.model_selection import cross_val_score
+    highest_score = 0
+    highest_threshold = 0
+    for i in range(1, X.columns.shape[0], step):
+        X_wrapper = RFE(estimator, n_features_to_select=i, step=step).fit_transform(X, y)
+        once = cross_val_score(estimator, X_wrapper, y, cv=cv).mean()
+        score.append(once)
+        if once > highest_score:
+            highest_score = once
+            highest_threshold = i
+    import matplotlib.pyplot as plt
+    plt.plot(range(1, X.columns.shape[0], step), score)
+    plt.show()
+    return highest_threshold
 
 
 if __name__ == "__main__":
