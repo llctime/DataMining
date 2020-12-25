@@ -10,11 +10,12 @@ TARGET = 'label'    # 标签
 ALGORITHMS = {
     'RFC': __import__('sklearn.ensemble', globals={}, locals={}, fromlist=['ensemble']).RandomForestClassifier
 }
+PASS_FEATURES = ['regionCode']
 
 def Main():
 
     # 导入原始数据
-    DATA_FILEPATH = 'D:\\Dev\\Data\\DataMining\\test.csv'    # 原始数据文件路径
+    DATA_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\data\\loan\\train.csv'    # 原始数据文件路径
     ENCODING = 'GBK'    # 读文件编码格式
     MISSING_VALUES = 'NaN'    # 原始数据缺失值
     import pandas as pd
@@ -64,7 +65,7 @@ def Main():
         print('无需要标准化的数据！') if SHOW_LOG == True else ()
 
     # 类别型，对于有序特征，直接标签化
-    ORDER_CATEGORICAL_FEATURES = ['列A']    # 有序类别型特征
+    ORDER_CATEGORICAL_FEATURES = ['grade', 'employmentLength']    # 有序类别型特征
     encode_order_cat_data = pd.DataFrame()
     if len(ORDER_CATEGORICAL_FEATURES) > 0:
         from sklearn.preprocessing import OrdinalEncoder
@@ -75,7 +76,7 @@ def Main():
         print('无需要标签化的数据！') if SHOW_LOG == True else ()
 
     # 类别型，对于无序特征，onehot
-    DISORDER_CATEGORICAL_FEATURES = ['列B']    # 无序类别型特征
+    DISORDER_CATEGORICAL_FEATURES = ['purpose', 'postCode']    # 无序类别型特征
     encode_disorder_cat_data = pd.DataFrame()
     if len(DISORDER_CATEGORICAL_FEATURES) > 0:
         from sklearn.preprocessing import OneHotEncoder
@@ -97,17 +98,30 @@ def Main():
 
     # ----------------------------- 特征工程 ----------------------------- #
 
+    # 生成算术运算特征
+    MINUS_FIRST_FEATURES = ['ficoRangeHigh']
+    MINUS_SECOND_FRATURES = ['ficoRangeLow']
+    cal_data = minusFeatures(pre_data, MINUS_FIRST_FEATURES, MINUS_SECOND_FRATURES)
+    print('生成算术运算特征数据：\n', cal_data) if SHOW_LOG == True else ()
+
+def minusFeatures(X, first_operators, second_operators):
+    import pandas as pd
+    gen_features = X[first_operators] - X[second_operators]
+    minus_data = pd.concat([X.drop(X.columns.difference([first_operators,second_operators]), 1, inplace=False), gen_features], axis=1, ignore_index=False)
+    return minus_data
+
+
     # 生成多项式特征（交叉特征）
     POLYNOMIAL_FEATURES = ['列A','列C']    # 需生成多项式特征的特征
     polynomial_data = pd.DataFrame()
     if len(POLYNOMIAL_FEATURES) > 0:
         from sklearn.preprocessing import PolynomialFeatures
         polynomialfeatures = PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)
-        polynomial_data = pd.DataFrame(data=polynomialfeatures.fit_transform(pre_data[POLYNOMIAL_FEATURES]), columns=('poly_'+ str(item) for item in range(polynomialfeatures.n_output_features_)))
+        polynomial_data = pd.DataFrame(data=polynomialfeatures.fit_transform(cal_data[POLYNOMIAL_FEATURES]), columns=('poly_'+ str(item) for item in range(polynomialfeatures.n_output_features_)))
         print('生成多项式特征数据：\n', polynomial_data) if SHOW_LOG == True else ()
     else:
         print('无需生成多项式特征！') if SHOW_LOG == True else ()
-    poly_data = pd.concat([pre_data, polynomial_data], axis=1, ignore_index=False)
+    poly_data = pd.concat([cal_data, polynomial_data], axis=1, ignore_index=False)
     print('加入多项式特征后数据：\n', poly_data) if SHOW_LOG == True else ()
 
     # 过滤法：方差选择、卡方检验（适合初期特征数目较多时，筛掉与标签明显不相关的特征）
