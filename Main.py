@@ -6,11 +6,11 @@
 
 # 常量
 SHOW_LOG = True    # 日志输出标识
-TARGET = 'label'    # 标签
+TARGET = 'isDefault'    # 标签
+IDENTIFICATION = 'id'    # 标识
 ALGORITHMS = {
     'RFC': __import__('sklearn.ensemble', globals={}, locals={}, fromlist=['ensemble']).RandomForestClassifier
 }
-PASS_FEATURES = ['regionCode']
 
 def Main():
 
@@ -19,22 +19,29 @@ def Main():
     ENCODING = 'GBK'    # 读文件编码格式
     MISSING_VALUES = 'NaN'    # 原始数据缺失值
     import pandas as pd
+    import numpy as np
     ori_data = pd.read_csv(DATA_FILEPATH, na_values=MISSING_VALUES, encoding=ENCODING)
-    print('原始数据：\n',ori_data) if SHOW_LOG == True else ()
-    ori_data_withoutlabel = ori_data.loc[:, ori_data.columns != TARGET]
+    print('原始数据：\n',ori_data.head(10)) if SHOW_LOG == True else ()
+
+    # 初步判断分类、删除字段
+    ori_data_withoutlabel = ori_data.loc[:, ori_data.columns!=TARGET]
+    ANALYSIS_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\天池贷款违约预测训练数据字段分析.xlsx'
+    # makeAnalysisFile(ANALYSIS_FILEPATH, ori_data_withoutlabel)
+    del_features = selectFeatures(ANALYSIS_FILEPATH, ['删除'], 'transform', 'colname')
+    print('要删除的字段：\n',del_features) if SHOW_LOG == True else ()
+    after_del_data = ori_data_withoutlabel.drop(ori_data_withoutlabel[del_features], 1, inplace=False)
+    print('删除后剩余的数据：\n',after_del_data.head(10)) if SHOW_LOG == True else ()
 
     # ------------------------------ 预处理 ------------------------------ #
 
+    numric_features = selectFeatures(ANALYSIS_FILEPATH, ['int','float'], 'type', 'colname')
+    print(numric_features)
+
     # 补缺失值
-    impute_data = pd.DataFrame()
-    if len(ori_data_withoutlabel.columns) > 0:
-        from sklearn.impute import SimpleImputer
-        import numpy as np
-        simpleimputer = SimpleImputer(missing_values=np.nan)
-        impute_data = pd.DataFrame(data=simpleimputer.fit_transform(ori_data_withoutlabel), columns=ori_data_withoutlabel.columns)
-        print('补缺失值：\n',impute_data) if SHOW_LOG == True else ()
-    else:
-        print('无数据！') if SHOW_LOG == True else ()
+    from sklearn.impute import SimpleImputer
+    simpleimputer = SimpleImputer(missing_values=np.nan)
+    impute_data = pd.DataFrame(data=simpleimputer.fit_transform(after_del_data), columns=after_del_data.columns)
+    print('补缺失值：\n',impute_data.head(10)) if SHOW_LOG == True else ()
 
     # 人为确定特征类型为连续型还是类别型，分别处理
     # 另：后续还需考虑如果特征标签未知，如何使用程序初步判断类型
@@ -104,13 +111,6 @@ def Main():
     cal_data = minusFeatures(pre_data, MINUS_FIRST_FEATURES, MINUS_SECOND_FRATURES)
     print('生成算术运算特征数据：\n', cal_data) if SHOW_LOG == True else ()
 
-def minusFeatures(X, first_operators, second_operators):
-    import pandas as pd
-    gen_features = X[first_operators] - X[second_operators]
-    minus_data = pd.concat([X.drop(X.columns.difference([first_operators,second_operators]), 1, inplace=False), gen_features], axis=1, ignore_index=False)
-    return minus_data
-
-
     # 生成多项式特征（交叉特征）
     POLYNOMIAL_FEATURES = ['列A','列C']    # 需生成多项式特征的特征
     polynomial_data = pd.DataFrame()
@@ -173,6 +173,38 @@ def minusFeatures(X, first_operators, second_operators):
     wrap_sel_data = pd.DataFrame(data=rfe.fit_transform(chi2_sel_data, ori_data[TARGET]), columns=(chi2_sel_data.columns[item] for item in rfe.get_support(indices=True)))
     print('包装法选择后的数据：\n', wrap_sel_data) if SHOW_LOG == True else ()
     # ------------------------------------------------------------------- #
+
+def makeAnalysisFile(filepath, data):
+    # 创建初始字段分析文件
+    import pandas as pd
+    analysis = pd.DataFrame(data=data.dtypes, columns=['type'])
+    analysis.to_excel(filepath, sheet_name='Sheet1')
+
+def selectFeatures(filepath, match_char_list, match_col, output_col):
+    # 工具方法，用于将指定分析文件中的每个字段根据不同的匹配条件筛选出来
+    # filepath: 分析文件路径
+    # match_char_list: 分析文件中指定的匹配关键字
+    # match_col: 指定分析文件中要匹配目标字段的列名
+    # output_col: 指定匹配成功的行中要输出的字段
+    import pandas as pd
+    analysis_data = pd.read_excel(filepath, engine='openpyxl')
+    classified_features = []
+    for i in analysis_data[match_col].index:
+        if analysis_data[match_col][i] != 'nan':
+            for j in match_char_list:
+                tmp = ''
+                if j in str(analysis_data[match_col][i]):
+                    tmp = analysis_data[output_col][i]
+                if len(tmp) > 0:
+                    classified_features.append(tmp)
+                    break
+    return classified_features
+
+def minusFeatures(X, first_operators, second_operators):
+    import pandas as pd
+    gen_features = X[first_operators] - X[second_operators]
+    minus_data = pd.concat([X.drop(X.columns.difference([first_operators,second_operators]), 1, inplace=False), gen_features], axis=1, ignore_index=False)
+    return minus_data
 
 def plotEmbedded(algorithm, n_estimators, X, y, partitions, cv):
     # time warning #
