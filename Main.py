@@ -27,36 +27,37 @@ def Main():
     ori_data_withoutlabel = ori_data.loc[:, ori_data.columns!=TARGET]
     ANALYSIS_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\天池贷款违约预测训练数据字段分析.xlsx'
     # makeAnalysisFile(ANALYSIS_FILEPATH, ori_data_withoutlabel)
-    del_features = selectFeatures(ANALYSIS_FILEPATH, ['删除'], 'transform', 'colname')
+    analysis_data = pd.read_excel(ANALYSIS_FILEPATH, engine='openpyxl')
+    del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
     print('要删除的字段：\n',del_features) if SHOW_LOG == True else ()
+    del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
+    print('分析文件数据删除字段后剩余的数据：\n',del_ana_data) if SHOW_LOG == True else ()
     after_del_data = ori_data_withoutlabel.drop(ori_data_withoutlabel[del_features], 1, inplace=False)
     print('删除后剩余的数据：\n',after_del_data.head(10)) if SHOW_LOG == True else ()
 
     # ------------------------------ 预处理 ------------------------------ #
 
-    numric_features = selectFeatures(ANALYSIS_FILEPATH, ['int','float'], 'type', 'colname')
-    print(numric_features)
+    # 先将进入预处理阶段的数据进行基本类型判别（数值型/字符型）
+    numric_features = selectFeatures(del_ana_data, ['int','float'], 'type', 'colname')
+    print('数值型特征：\n',numric_features) if SHOW_LOG == True else ()
+    string_features = del_ana_data[-del_ana_data.colname.isin(numric_features)].colname.tolist()
+    print('字符型特征：\n',string_features) if SHOW_LOG == True else ()
 
-    # 补缺失值
-    from sklearn.impute import SimpleImputer
-    simpleimputer = SimpleImputer(missing_values=np.nan)
-    impute_data = pd.DataFrame(data=simpleimputer.fit_transform(after_del_data), columns=after_del_data.columns)
-    print('补缺失值：\n',impute_data.head(10)) if SHOW_LOG == True else ()
-
-    # 人为确定特征类型为连续型还是类别型，分别处理
+    # 对于数值型，人为确定特征类型为连续型还是类别型，分别处理
     # 另：后续还需考虑如果特征标签未知，如何使用程序初步判断类型
 
     # 连续型：二值化
-    BINARY_CONTINUOUS_FEATURES = ['列B', '列C']    # 需二值化的连续型特征
-    BINARY_THRESHOLD = 3    # 二值化的阈值
-    bin_con_data = pd.DataFrame()
+    bin_con_data = after_del_data.copy()
+    BINARY_CONTINUOUS_FEATURES = selectFeatures(del_ana_data[del_ana_data.colname.isin(numric_features)], ['Binarizer'], 'transform', 'colname')    # 需二值化的连续型特征
+    BINARY_THRESHOLD = selectFeatures(del_ana_data[del_ana_data.colname.isin(numric_features)], ['Binarizer'], 'transform', 'threshold')    # 二值化的阈值
     if len(BINARY_CONTINUOUS_FEATURES) > 0:
         from sklearn.preprocessing import Binarizer
-        binarizer = Binarizer(threshold = BINARY_THRESHOLD)
-        bin_con_data = pd.DataFrame(data=binarizer.fit_transform(impute_data[BINARY_CONTINUOUS_FEATURES]), columns=BINARY_CONTINUOUS_FEATURES)
-        print('连续型特征二值化：\n',bin_con_data) if SHOW_LOG == True else ()
-        impute_data[BINARY_CONTINUOUS_FEATURES] = bin_con_data
-        print('加入二值化后的数据为：\n', impute_data) if SHOW_LOG == True else ()
+        for i in range(len(BINARY_CONTINUOUS_FEATURES)):
+            binarizer = Binarizer(threshold = int(float(BINARY_THRESHOLD[i])))
+            bin_data = pd.DataFrame(data=binarizer.fit_transform(after_del_data[BINARY_CONTINUOUS_FEATURES[i]].values.reshape(-1, 1)), columns=[BINARY_CONTINUOUS_FEATURES[i]])
+            print('连续型特征二值化：\n',bin_data.head(10)) if SHOW_LOG == True else ()
+            bin_con_data[BINARY_CONTINUOUS_FEATURES[i]] = bin_data
+        print('加入二值化后的数据为：\n', bin_con_data.head(10)) if SHOW_LOG == True else ()
     else:
         print('无需要二值化的数据！') if SHOW_LOG == True else ()
 
@@ -96,6 +97,12 @@ def Main():
         print('无序类别型特征独热编码：\n', encode_disorder_cat_data) if SHOW_LOG == True else ()
     else:
         print('无需要onehot的数据！') if SHOW_LOG == True else ()
+
+    # 补缺失值
+    from sklearn.impute import SimpleImputer
+    simpleimputer = SimpleImputer(missing_values=np.nan)
+    impute_data = pd.DataFrame(data=simpleimputer.fit_transform(after_del_data), columns=after_del_data.columns)
+    print('补缺失值：\n',impute_data.head(10)) if SHOW_LOG == True else ()
 
     # 合并
     pre_data = pd.concat([scale_con_data, encode_order_cat_data, encode_disorder_cat_data], axis=1, ignore_index=False)
@@ -180,21 +187,19 @@ def makeAnalysisFile(filepath, data):
     analysis = pd.DataFrame(data=data.dtypes, columns=['type'])
     analysis.to_excel(filepath, sheet_name='Sheet1')
 
-def selectFeatures(filepath, match_char_list, match_col, output_col):
-    # 工具方法，用于将指定分析文件中的每个字段根据不同的匹配条件筛选出来
-    # filepath: 分析文件路径
-    # match_char_list: 分析文件中指定的匹配关键字
-    # match_col: 指定分析文件中要匹配目标字段的列名
+def selectFeatures(data, match_char_list, match_col, output_col):
+    # 工具方法，用于将数据中的每个字段根据不同的匹配条件筛选出来
+    # data: 数据
+    # match_char_list: 数据中指定的匹配关键字
+    # match_col: 指定数据中要匹配目标字段的列名
     # output_col: 指定匹配成功的行中要输出的字段
-    import pandas as pd
-    analysis_data = pd.read_excel(filepath, engine='openpyxl')
     classified_features = []
-    for i in analysis_data[match_col].index:
-        if analysis_data[match_col][i] != 'nan':
+    for i in data[match_col].index:
+        if data[match_col][i] != 'nan':
             for j in match_char_list:
                 tmp = ''
-                if j in str(analysis_data[match_col][i]):
-                    tmp = analysis_data[output_col][i]
+                if j in str(data[match_col][i]):
+                    tmp = str(data[output_col][i])
                 if len(tmp) > 0:
                     classified_features.append(tmp)
                     break
