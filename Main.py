@@ -124,22 +124,26 @@ def Main():
     # ----------------------------- 特征工程 ----------------------------- #
 
     # 生成算术运算特征
-    MINUS_FIRST_FEATURES = ['ficoRangeHigh']
-    MINUS_SECOND_FRATURES = ['ficoRangeLow']
-    cal_data = minusFeatures(encode_disorder_cat_data, MINUS_FIRST_FEATURES, MINUS_SECOND_FRATURES)
-    print('生成算术运算特征数据：\n', cal_data) if SHOW_LOG == True else ()
+    MINUS_FIRST_FEATURES = ['ficoRangeLow']
+    MINUS_SECOND_FRATURES = ['ficoRangeHigh']
+    cal_minus_data = encode_disorder_cat_data.copy()
+    if len(MINUS_FIRST_FEATURES) > 0:
+        cal_minus_data = minusFeatures(encode_disorder_cat_data, MINUS_FIRST_FEATURES, MINUS_SECOND_FRATURES)
+        print('生成算术运算特征数据：\n', cal_minus_data.head(10)) if SHOW_LOG == True else ()
+    else:
+        print('无需要算术相减的数据！') if SHOW_LOG == True else ()
 
     # 生成多项式特征（交叉特征）
-    POLYNOMIAL_FEATURES = ['列A','列C']    # 需生成多项式特征的特征
+    POLYNOMIAL_FEATURES = []    # 需生成多项式特征的特征
     polynomial_data = pd.DataFrame()
     if len(POLYNOMIAL_FEATURES) > 0:
         from sklearn.preprocessing import PolynomialFeatures
         polynomialfeatures = PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)
-        polynomial_data = pd.DataFrame(data=polynomialfeatures.fit_transform(cal_data[POLYNOMIAL_FEATURES]), columns=('poly_'+ str(item) for item in range(polynomialfeatures.n_output_features_)))
+        polynomial_data = pd.DataFrame(data=polynomialfeatures.fit_transform(cal_minus_data[POLYNOMIAL_FEATURES]), columns=('poly_'+ str(item) for item in range(polynomialfeatures.n_output_features_)))
         print('生成多项式特征数据：\n', polynomial_data) if SHOW_LOG == True else ()
     else:
         print('无需生成多项式特征！') if SHOW_LOG == True else ()
-    poly_data = pd.concat([cal_data, polynomial_data], axis=1, ignore_index=False)
+    poly_data = pd.concat([cal_minus_data, polynomial_data], axis=1, ignore_index=False)
     print('加入多项式特征后数据：\n', poly_data) if SHOW_LOG == True else ()
 
     # 过滤法：方差选择、卡方检验（适合初期特征数目较多时，筛掉与标签明显不相关的特征）
@@ -150,20 +154,41 @@ def Main():
     var_sel_data = pd.DataFrame(data=variancethreshold.fit_transform(poly_data), columns=(poly_data.columns[item] for item in variancethreshold.get_support(indices=True)))
     print('方差选择后的数据：\n', var_sel_data) if SHOW_LOG == True else ()
 
-    # 2. 卡方检验特征选择
-    chi2_sel_data = var_sel_data
-    from sklearn.feature_selection import mutual_info_classif as MIC
-    mic = MIC(var_sel_data, ori_data[TARGET])    # 互信息法验证特征与标签的相关性（线性和非线性），0为相互独立，1为相关
-    CHI_K = mic.shape[0] - (mic <= 0).sum()    # k值由特征总数减去p>0.05的特征数得到
-    print('卡方选择的k值：\n', CHI_K) if SHOW_LOG == True else ()
-    if CHI_K > 0:
-        from sklearn.feature_selection import SelectKBest
-        from sklearn.feature_selection import chi2
-        selectkbest = SelectKBest(chi2, k=CHI_K)
-        chi2_sel_data = pd.DataFrame(data=selectkbest.fit_transform(var_sel_data, ori_data[TARGET]), columns=(var_sel_data.columns[item] for item in selectkbest.get_support(indices=True)))
-    else:
-        print('无需进行卡方检验选择！') if SHOW_LOG == True else ()
-    print('卡方选择后的数据：\n', chi2_sel_data) if SHOW_LOG == True else ()
+    # 2. 卡方检验特征选择，注，运行时间较长，建议第一次跑完之后把筛选后的特征列保存，之后不再跑此过程
+    chi2_sel_data = var_sel_data.copy()
+    CHI2_FEATURES = ['loanAmnt', 'term', 'interestRate', 'installment', 'grade', 'subGrade',
+                     'employmentTitle', 'homeOwnership', 'annualIncome',
+                     'verificationStatus', 'dti', 'delinquency_2years', 'openAcc', 'pubRec',
+                     'pubRecBankruptcies', 'revolUtil', 'initialListStatus',
+                     'applicationType', 'n1', 'n2', 'n3', 'n5', 'n7', 'n9', 'n10', 'n14',
+                     'onehot_0', 'onehot_1', 'onehot_2', 'onehot_3', 'onehot_4', 'onehot_5',
+                     'onehot_6', 'onehot_8', 'onehot_9', 'onehot_10', 'onehot_12',
+                     'onehot_14', 'onehot_16', 'onehot_17', 'onehot_19', 'onehot_20',
+                     'onehot_21', 'onehot_22', 'onehot_25', 'onehot_26', 'onehot_27',
+                     'onehot_29', 'onehot_31', 'onehot_32', 'onehot_33', 'onehot_34',
+                     'onehot_35', 'onehot_36', 'onehot_38', 'onehot_39', 'onehot_40',
+                     'onehot_41', 'onehot_43', 'onehot_44', 'onehot_46', 'onehot_47',
+                     'onehot_48', 'onehot_49', 'onehot_50', 'onehot_51', 'onehot_52',
+                     'onehot_53', 'onehot_54', 'onehot_55', 'onehot_56', 'onehot_58',
+                     'onehot_59', 'onehot_61']
+    chi2_sel_data = chi2_sel_data[CHI2_FEATURES]
+    print('卡方选择后的特征：\n', CHI2_FEATURES) if SHOW_LOG == True else ()
+    print('卡方选择后的数据：\n', chi2_sel_data.head(10)) if SHOW_LOG == True else ()
+    # from sklearn.feature_selection import mutual_info_classif as MIC
+    # mic = MIC(var_sel_data, ori_data[TARGET])    # 互信息法验证特征与标签的相关性（线性和非线性），0为相互独立，1为相关
+    # CHI_K = mic.shape[0] - (mic <= 0).sum()    # k值由特征总数减去p>0.05的特征数得到
+    # print('卡方选择的k值：\n', CHI_K) if SHOW_LOG == True else ()
+    # if CHI_K > 0:
+    #     from sklearn.feature_selection import SelectKBest
+    #     from sklearn.feature_selection import chi2
+    #     selectkbest = SelectKBest(chi2, k=CHI_K)
+    #     chi2_sel_data = pd.DataFrame(data=selectkbest.fit_transform(var_sel_data, ori_data[TARGET]), columns=(var_sel_data.columns[item] for item in selectkbest.get_support(indices=True)))
+    # else:
+    #     print('无需进行卡方检验选择！') if SHOW_LOG == True else ()
+    # print('卡方选择后的特征：\n', chi2_sel_data.columns) if SHOW_LOG == True else ()
+    # print('卡方选择后的数据：\n', chi2_sel_data.head(10)) if SHOW_LOG == True else ()
+
+
 
     # 嵌入法：利用算法模型真实验证特征相关性，得到feature_importance（适合特征经过粗筛后，寻找最为相关的特征，）
     EMB_ALGORITHM = 'RFC'
@@ -217,10 +242,10 @@ def selectFeatures(data, match_char_list, match_col, output_col):
     return classified_features
 
 def minusFeatures(X, first_operators, second_operators):
-    import pandas as pd
-    gen_features = X[first_operators] - X[second_operators]
-    minus_data = pd.concat([X.drop(X.columns.difference([first_operators,second_operators]), 1, inplace=False), gen_features], axis=1, ignore_index=False)
-    return minus_data
+    for i in range(len(first_operators)):
+        X[first_operators[i]+'-'+second_operators[i]] = X[first_operators[i]] - X[second_operators[i]]
+        X.drop([first_operators[i], second_operators[i]], 1, inplace=True)
+    return X
 
 def plotEmbedded(algorithm, n_estimators, X, y, partitions, cv):
     # time warning #
