@@ -6,32 +6,61 @@
 
 # 常量
 SHOW_LOG = True    # 日志输出标识
+
+TRAIN_DATA_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\data\\loan\\train.csv'    # 训练数据文件路径
+TEST_DATA_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\data\\loan\\testA.csv'    # 测试数据文件路径
+ENCODING = 'GBK'    # 读文件编码格式
+MISSING_VALUES = 'NaN'    # 原始数据缺失值
+
+ANALYSIS_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\天池贷款违约预测训练数据字段分析.csv'
 TARGET = 'isDefault'    # 标签
-IDENTIFICATION = 'id'    # 标识
 ALGORITHMS = {
     'RFC': __import__('sklearn.ensemble', globals={}, locals={}, fromlist=['ensemble']).RandomForestClassifier
-}
+}    # 算法列表
+
+from sklearn.base import BaseEstimator, TransformerMixin
+
+class ColumnDeletion(BaseEstimator, TransformerMixin):
+    def __init__(self, drop_list):
+        self.drop_list = drop_list    # 需要删除的字段列表
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        return X.drop(X[self.drop_list], 1, inplace=False)
+
+def readFileToDataFrame(filepath, encoding, missing_values):
+    import pandas as pd
+    data = pd.read_csv(filepath, na_values=missing_values, encoding=encoding)
+    return data
+
+def makeAnalysisFile(filepath, data):
+    # 创建初始字段分析文件
+    import os
+    if not os.path.exists(filepath):
+        import pandas as pd
+        analysis = pd.DataFrame(data=data.dtypes, columns=['type'])
+        analysis.to_csv(filepath)
 
 def Main():
 
     # 导入原始数据
-    DATA_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\data\\loan\\train.csv'    # 原始数据文件路径
-    ENCODING = 'GBK'    # 读文件编码格式
-    MISSING_VALUES = 'NaN'    # 原始数据缺失值
-    import pandas as pd
-    ori_data = pd.read_csv(DATA_FILEPATH, na_values=MISSING_VALUES, encoding=ENCODING)
+    ori_data = readFileToDataFrame(TRAIN_DATA_FILEPATH, ENCODING, MISSING_VALUES)
     print('原始数据：\n',ori_data.head(10)) if SHOW_LOG == True else ()
 
     # 初步判断分类、删除字段
-    ori_data_withoutlabel = ori_data.loc[:, ori_data.columns!=TARGET]
-    ANALYSIS_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\天池贷款违约预测训练数据字段分析.xlsx'
-    # makeAnalysisFile(ANALYSIS_FILEPATH, ori_data_withoutlabel)
-    analysis_data = pd.read_excel(ANALYSIS_FILEPATH, engine='openpyxl')
+    makeAnalysisFile(ANALYSIS_FILEPATH, ori_data)
+    import pandas as pd
+    analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
     del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
     print('要删除的字段：\n',del_features) if SHOW_LOG == True else ()
     del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
     print('分析文件数据删除字段后剩余的数据：\n',del_ana_data) if SHOW_LOG == True else ()
-    after_del_data = ori_data_withoutlabel.drop(ori_data_withoutlabel[del_features], 1, inplace=False)
+
+    from sklearn.pipeline import Pipeline
+    pipeline = Pipeline([('del_Columns', ColumnDeletion(del_features))])
+    after_del_data = pipeline.fit_transform(ori_data)
     print('删除后剩余的数据：\n',after_del_data.head(10)) if SHOW_LOG == True else ()
 
     # ------------------------------ 预处理 ------------------------------ #
@@ -236,11 +265,7 @@ def Main():
 
     # ------------------------------------------------------------------- #
 
-def makeAnalysisFile(filepath, data):
-    # 创建初始字段分析文件
-    import pandas as pd
-    analysis = pd.DataFrame(data=data.dtypes, columns=['type'])
-    analysis.to_excel(filepath, sheet_name='Sheet1')
+
 
 def selectFeatures(data, match_char_list, match_col, output_col):
     # 工具方法，用于将数据中的每个字段根据不同的匹配条件筛选出来
