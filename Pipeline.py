@@ -20,16 +20,6 @@ ALGORITHMS = {
 
 from sklearn.base import BaseEstimator, TransformerMixin
 
-class ColumnDeletion(BaseEstimator, TransformerMixin):
-    def __init__(self, drop_list):
-        self.drop_list = drop_list    # 需要删除的字段列表
-
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X, y=None):
-        return X.drop(X[self.drop_list], 1, inplace=False)
-
 def readFileToDataFrame(filepath, encoding, missing_values):
     import pandas as pd
     data = pd.read_csv(filepath, na_values=missing_values, encoding=encoding)
@@ -43,6 +33,74 @@ def makeAnalysisFile(filepath, data):
         analysis = pd.DataFrame(data=data.dtypes, columns=['type'])
         analysis.to_csv(filepath)
 
+class ColumnDeletion(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        after_del_data = X.copy()
+        analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
+        del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
+        after_del_data = X.drop(X[del_features], 1, inplace=False)
+        print('删除后剩余的数据：\n', after_del_data.head(10)) if SHOW_LOG == True else ()
+        return after_del_data
+
+class MissingImputation(BaseEstimator, TransformerMixin):
+    # 针对字符型和数值型特征分别补缺失值
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
+        del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
+        del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
+        numric_features = selectFeatures(del_ana_data, ['int', 'float'], 'type', 'colname')
+        string_features = del_ana_data[-del_ana_data.colname.isin(numric_features)].colname.tolist()
+        impute_data = X.copy()
+        from sklearn.impute import SimpleImputer
+        import numpy as np
+        import pandas as pd
+        simpleimputer_numric = SimpleImputer(missing_values=np.nan)    # 数值型特征用均值补
+        impute_data[numric_features] = pd.DataFrame(data=simpleimputer_numric.fit_transform(X[numric_features]), columns=numric_features)
+        print('数值型特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
+        string_features_most_frequent = impute_data[string_features].mode()
+        for col in string_features_most_frequent.columns:
+            simpleimputer_string = SimpleImputer(missing_values=np.nan, strategy="constant", fill_value=string_features_most_frequent[col])    # 字符型特征用众数补
+            impute_data[col] = pd.DataFrame(data=simpleimputer_string.fit_transform(X[col].values.reshape(-1, 1)), columns=[col])
+        print('字符型特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
+        return impute_data
+
+class Digitization(BaseEstimator, TransformerMixin):
+    # 字符型特征标签化转为数值型
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
+        del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
+        del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
+        numric_features = selectFeatures(del_ana_data, ['int', 'float'], 'type', 'colname')
+        string_features = del_ana_data[-del_ana_data.colname.isin(numric_features)].colname.tolist()
+        ordinal_encode_data = X.copy()
+        import pandas as pd
+        if len(string_features) > 0:
+            from sklearn.preprocessing import OrdinalEncoder
+            OrdinalEncoder().fit(X[string_features]).categories_
+            ordinal_encode_data[string_features] = pd.DataFrame(data=OrdinalEncoder().fit_transform(X[string_features]), columns=string_features)
+            print('字符型特征标签化：\n', ordinal_encode_data[string_features]) if SHOW_LOG == True else ()
+        else:
+            print('无需要标签化的数据！') if SHOW_LOG == True else ()
+        return ordinal_encode_data
+
 def Main():
 
     # 导入原始数据
@@ -52,56 +110,64 @@ def Main():
     # 初步判断分类、删除字段
     makeAnalysisFile(ANALYSIS_FILEPATH, ori_data)
     import pandas as pd
-    analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
-    del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
-    print('要删除的字段：\n',del_features) if SHOW_LOG == True else ()
-    del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
-    print('分析文件数据删除字段后剩余的数据：\n',del_ana_data) if SHOW_LOG == True else ()
+    # analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
+    # del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
+    # print('要删除的字段：\n',del_features) if SHOW_LOG == True else ()
+    # del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
+    # print('分析文件数据删除字段后剩余的数据：\n',del_ana_data) if SHOW_LOG == True else ()
 
     from sklearn.pipeline import Pipeline
-    pipeline = Pipeline([('del_Columns', ColumnDeletion(del_features))])
-    after_del_data = pipeline.fit_transform(ori_data)
-    print('删除后剩余的数据：\n',after_del_data.head(10)) if SHOW_LOG == True else ()
+    # pipeline_1 = Pipeline([('del_Columns', ColumnDeletion())])
+    # after_del_data = pipeline_1.fit_transform(ori_data)
+    # print('删除后剩余的数据：\n',after_del_data.head(10)) if SHOW_LOG == True else ()
 
     # ------------------------------ 预处理 ------------------------------ #
 
     # 先将进入预处理阶段的数据进行基本类型判别（数值型/字符型）
-    numric_features = selectFeatures(del_ana_data, ['int','float'], 'type', 'colname')
-    print('数值型特征：\n',numric_features) if SHOW_LOG == True else ()
-    string_features = del_ana_data[-del_ana_data.colname.isin(numric_features)].colname.tolist()
-    print('字符型特征：\n',string_features) if SHOW_LOG == True else ()
+    # numric_features = selectFeatures(del_ana_data, ['int','float'], 'type', 'colname')
+    # print('数值型特征：\n',numric_features) if SHOW_LOG == True else ()
+    # string_features = del_ana_data[-del_ana_data.colname.isin(numric_features)].colname.tolist()
+    # print('字符型特征：\n',string_features) if SHOW_LOG == True else ()
 
     # 补缺失值
     # 数值型
-    impute_data = after_del_data.copy()
-    from sklearn.impute import SimpleImputer
-    import numpy as np
-    simpleimputer_numric = SimpleImputer(missing_values=np.nan)
-    impute_data[numric_features] = pd.DataFrame(data=simpleimputer_numric.fit_transform(after_del_data[numric_features]), columns=numric_features)
-    print('数值型特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
+    # impute_data = after_del_data.copy()
+    # from sklearn.impute import SimpleImputer
+    # import numpy as np
+    # simpleimputer_numric = SimpleImputer(missing_values=np.nan)
+    # impute_data[numric_features] = pd.DataFrame(data=simpleimputer_numric.fit_transform(after_del_data[numric_features]), columns=numric_features)
+    # print('数值型特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
     # 字符型
-    string_features_most_frequent = impute_data[string_features].mode()
-    print('字符型特征众数：\n', string_features_most_frequent) if SHOW_LOG == True else ()
-    for col in string_features_most_frequent.columns:
-        simpleimputer_string = SimpleImputer(missing_values=np.nan, strategy="constant", fill_value=string_features_most_frequent[col])
-        impute_data[col] = pd.DataFrame(data=simpleimputer_string.fit_transform(after_del_data[col].values.reshape(-1, 1)), columns=[col])
-    print('字符型特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
+    # string_features_most_frequent = impute_data[string_features].mode()
+    # print('字符型特征众数：\n', string_features_most_frequent) if SHOW_LOG == True else ()
+    # for col in string_features_most_frequent.columns:
+    #     simpleimputer_string = SimpleImputer(missing_values=np.nan, strategy="constant", fill_value=string_features_most_frequent[col])
+    #     impute_data[col] = pd.DataFrame(data=simpleimputer_string.fit_transform(after_del_data[col].values.reshape(-1, 1)), columns=[col])
+    # print('字符型特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
+
+    # from sklearn.pipeline import Pipeline
+    # pipeline_2 = Pipeline([('del_Columns', ColumnDeletion()),('impute_miss', MissingImputation())])
+    # impute_data = pipeline_2.fit_transform(ori_data)
+    # print('特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
 
     # 对于字符型，先标签化转为数值型后按数值型处理
     # 对于数值型，人为确定特征类型为连续型还是类别型，分别处理
     # 另：后续还需考虑如果特征标签未知，如何使用程序初步判断类型
 
     # 字符型，直接标签化，其中对于有序的字符型特征，标签化后就可直接使用，后续对于无序的字符型特征再进行onehot
-    ordinal_encode_data = impute_data.copy()
-    if len(string_features) > 0:
-        from sklearn.preprocessing import OrdinalEncoder
-        OrdinalEncoder().fit(impute_data[string_features]).categories_
-        ordinal_encode_data[string_features] = pd.DataFrame(
-            data=OrdinalEncoder().fit_transform(impute_data[string_features]),
-            columns=string_features)
-        print('字符型特征标签化：\n', ordinal_encode_data[string_features]) if SHOW_LOG == True else ()
-    else:
-        print('无需要标签化的数据！') if SHOW_LOG == True else ()
+    # ordinal_encode_data = impute_data.copy()
+    # if len(string_features) > 0:
+    #     from sklearn.preprocessing import OrdinalEncoder
+    #     OrdinalEncoder().fit(impute_data[string_features]).categories_
+    #     ordinal_encode_data[string_features] = pd.DataFrame(
+    #         data=OrdinalEncoder().fit_transform(impute_data[string_features]),
+    #         columns=string_features)
+    #     print('字符型特征标签化：\n', ordinal_encode_data[string_features]) if SHOW_LOG == True else ()
+    # else:
+    #     print('无需要标签化的数据！') if SHOW_LOG == True else ()
+    pipeline_3 = Pipeline([('del_Columns', ColumnDeletion()),('impute_miss', MissingImputation()),('digi_string', Digitization())])
+    ordinal_encode_data = pipeline_3.fit_transform(ori_data)
+    # print('字符型特征标签化：\n', ordinal_encode_data.head(10)) if SHOW_LOG == True else ()
 
     # 连续型：二值化
     bin_con_data = ordinal_encode_data.copy()
