@@ -33,6 +33,24 @@ def makeAnalysisFile(filepath, data):
         analysis = pd.DataFrame(data=data.dtypes, columns=['type'])
         analysis.to_csv(filepath)
 
+def selectFeatures(data, match_char_list, match_col, output_col):
+    # 工具方法，用于将数据中的每个字段根据不同的匹配条件筛选出来
+    # data: 数据
+    # match_char_list: 数据中指定的匹配关键字
+    # match_col: 指定数据中要匹配目标字段的列名
+    # output_col: 指定匹配成功的行中要输出的字段
+    classified_features = []
+    for i in data[match_col].index:
+        if data[match_col][i] != 'nan':
+            for j in match_char_list:
+                tmp = ''
+                if j in str(data[match_col][i]):
+                    tmp = str(data[output_col][i])
+                if len(tmp) > 0:
+                    classified_features.append(tmp)
+                    break
+    return classified_features
+
 class ColumnDeletion(BaseEstimator, TransformerMixin):
     def __init__(self):
         pass
@@ -96,10 +114,161 @@ class Digitization(BaseEstimator, TransformerMixin):
             from sklearn.preprocessing import OrdinalEncoder
             OrdinalEncoder().fit(X[string_features]).categories_
             ordinal_encode_data[string_features] = pd.DataFrame(data=OrdinalEncoder().fit_transform(X[string_features]), columns=string_features)
-            print('字符型特征标签化：\n', ordinal_encode_data[string_features]) if SHOW_LOG == True else ()
+            print('字符型特征标签化：\n', ordinal_encode_data.head(10)) if SHOW_LOG == True else ()
         else:
             print('无需要标签化的数据！') if SHOW_LOG == True else ()
         return ordinal_encode_data
+
+class Binaryzation(BaseEstimator, TransformerMixin):
+    # 连续型：二值化
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
+        del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
+        del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
+        bin_con_data = X.copy()
+        BINARY_CONTINUOUS_FEATURES = selectFeatures(del_ana_data, ['Binarizer'], 'transform', 'colname')    # 需二值化的连续型特征
+        BINARY_THRESHOLD = selectFeatures(del_ana_data, ['Binarizer'], 'transform', 'threshold')    # 二值化的阈值
+        if len(BINARY_CONTINUOUS_FEATURES) > 0:
+            from sklearn.preprocessing import Binarizer
+            import pandas as pd
+            for i in range(len(BINARY_CONTINUOUS_FEATURES)):
+                binarizer = Binarizer(threshold = int(float(BINARY_THRESHOLD[i])))
+                bin_data = pd.DataFrame(data=binarizer.fit_transform(X[BINARY_CONTINUOUS_FEATURES[i]].values.reshape(-1, 1)), columns=[BINARY_CONTINUOUS_FEATURES[i]])
+                bin_con_data[BINARY_CONTINUOUS_FEATURES[i]] = bin_data
+            print('加入二值化后的数据为：\n', bin_con_data.head(10)) if SHOW_LOG == True else ()
+        else:
+            print('无需要二值化的数据！') if SHOW_LOG == True else ()
+        return bin_con_data
+
+class Standardization(BaseEstimator, TransformerMixin):
+    # 标准化（minmax）
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        scale_con_data = X.copy()
+        from sklearn.preprocessing import MinMaxScaler
+        import pandas as pd
+        minmaxScaler = MinMaxScaler().fit(X)
+        scale_con_data = pd.DataFrame(data=minmaxScaler.fit_transform(X), columns=X.columns)
+        print('连续型特征标准化：\n', scale_con_data.head(10)) if SHOW_LOG == True else ()
+        return scale_con_data
+
+class OneHotEncoding(BaseEstimator, TransformerMixin):
+    # 无序特征onehot
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
+        del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
+        del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
+        DISORDER_CATEGORICAL_FEATURES = selectFeatures(del_ana_data, ['OneHotEncoder'], 'transform',
+                                                       'colname')  # 无序类别型特征
+        encode_disorder_cat_data = X.copy()
+        if len(DISORDER_CATEGORICAL_FEATURES) > 0:
+            from sklearn.preprocessing import OneHotEncoder
+            import pandas as pd
+            if len(DISORDER_CATEGORICAL_FEATURES) == 1:
+                onehotencoder = OneHotEncoder(categories='auto').fit(X[DISORDER_CATEGORICAL_FEATURES])
+                tmp_l = encode_disorder_cat_data.drop(DISORDER_CATEGORICAL_FEATURES, axis=1)
+                tmp_r = pd.DataFrame(
+                    data=onehotencoder.fit_transform(X[DISORDER_CATEGORICAL_FEATURES]).toarray(),
+                    columns=('onehot_' + str(item) for item in range(len(onehotencoder.categories_[0]))))
+                encode_disorder_cat_data = pd.concat([tmp_l, tmp_r], axis=1, ignore_index=False)
+            else:
+                import numpy as np
+                onehotencoder = OneHotEncoder(categories='auto').fit(X[DISORDER_CATEGORICAL_FEATURES])
+                tmp_l = encode_disorder_cat_data.drop(DISORDER_CATEGORICAL_FEATURES, axis=1)
+                tmp_r = pd.DataFrame(
+                    data=onehotencoder.fit_transform(X[DISORDER_CATEGORICAL_FEATURES]).toarray(),
+                    columns=('onehot_' + str(item) for item in range(len(np.append(*onehotencoder.categories_)))))
+                encode_disorder_cat_data = pd.concat([tmp_l, tmp_r], axis=1, ignore_index=False)
+            print('无序类别型特征独热编码：\n', encode_disorder_cat_data.head(10)) if SHOW_LOG == True else ()
+        else:
+            print('无需要onehot的数据！') if SHOW_LOG == True else ()
+        return encode_disorder_cat_data
+
+def minusFeatures(X, first_operators, second_operators):
+    for i in range(len(first_operators)):
+        X[first_operators[i]+'-'+second_operators[i]] = X[first_operators[i]] - X[second_operators[i]]
+        X.drop([first_operators[i], second_operators[i]], 1, inplace=True)
+    return X
+
+class FeatureCalculation(BaseEstimator, TransformerMixin):
+    # 算术运算生成特征
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        MINUS_FIRST_FEATURES = ['ficoRangeLow']
+        MINUS_SECOND_FRATURES = ['ficoRangeHigh']
+        cal_data = X.copy()
+        if len(MINUS_FIRST_FEATURES) > 0:
+            cal_data = minusFeatures(X, MINUS_FIRST_FEATURES, MINUS_SECOND_FRATURES)
+            print('生成算术运算特征数据：\n', cal_data.head(10)) if SHOW_LOG == True else ()
+        else:
+            print('无需要算术相减的数据！') if SHOW_LOG == True else ()
+        return cal_data
+
+class FeaturePolynomialization(BaseEstimator, TransformerMixin):
+    # 生成多项式特征（交叉特征）
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        POLYNOMIAL_FEATURES = []  # 需生成多项式特征的特征
+        import pandas as pd
+        polynomial_data = pd.DataFrame()
+        if len(POLYNOMIAL_FEATURES) > 0:
+            from sklearn.preprocessing import PolynomialFeatures
+            polynomialfeatures = PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)
+            polynomial_data = pd.DataFrame(data=polynomialfeatures.fit_transform(X[POLYNOMIAL_FEATURES]),
+                                           columns=('poly_' + str(item) for item in
+                                                    range(polynomialfeatures.n_output_features_)))
+            print('生成多项式特征数据：\n', polynomial_data) if SHOW_LOG == True else ()
+        else:
+            print('无需生成多项式特征！') if SHOW_LOG == True else ()
+        poly_data = pd.concat([X, polynomial_data], axis=1, ignore_index=False)
+        print('加入多项式特征后数据：\n', poly_data) if SHOW_LOG == True else ()
+        return poly_data
+
+class VarianceSelection(BaseEstimator, TransformerMixin):
+    # 方差选择：只筛掉方差为0，即只有一种取值的特征
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        VARIANCE_THRESHOLD = 0  # 方差选择阈值
+        from sklearn.feature_selection import VarianceThreshold
+        import pandas as pd
+        variancethreshold = VarianceThreshold(threshold=VARIANCE_THRESHOLD)
+        var_sel_data = pd.DataFrame(data=variancethreshold.fit_transform(X),
+                                    columns=(X.columns[item] for item in
+                                             variancethreshold.get_support(indices=True)))
+        print('方差选择后的数据：\n', var_sel_data.head(10)) if SHOW_LOG == True else ()
+        return var_sel_data
 
 def Main():
 
@@ -109,145 +278,18 @@ def Main():
 
     # 初步判断分类、删除字段
     makeAnalysisFile(ANALYSIS_FILEPATH, ori_data)
-    import pandas as pd
-    # analysis_data = readFileToDataFrame(ANALYSIS_FILEPATH, ENCODING, MISSING_VALUES)
-    # del_features = selectFeatures(analysis_data, ['删除'], 'transform', 'colname')
-    # print('要删除的字段：\n',del_features) if SHOW_LOG == True else ()
-    # del_ana_data = analysis_data[-analysis_data.colname.isin(del_features)]
-    # print('分析文件数据删除字段后剩余的数据：\n',del_ana_data) if SHOW_LOG == True else ()
 
     from sklearn.pipeline import Pipeline
-    # pipeline_1 = Pipeline([('del_Columns', ColumnDeletion())])
-    # after_del_data = pipeline_1.fit_transform(ori_data)
-    # print('删除后剩余的数据：\n',after_del_data.head(10)) if SHOW_LOG == True else ()
-
-    # ------------------------------ 预处理 ------------------------------ #
-
-    # 先将进入预处理阶段的数据进行基本类型判别（数值型/字符型）
-    # numric_features = selectFeatures(del_ana_data, ['int','float'], 'type', 'colname')
-    # print('数值型特征：\n',numric_features) if SHOW_LOG == True else ()
-    # string_features = del_ana_data[-del_ana_data.colname.isin(numric_features)].colname.tolist()
-    # print('字符型特征：\n',string_features) if SHOW_LOG == True else ()
-
-    # 补缺失值
-    # 数值型
-    # impute_data = after_del_data.copy()
-    # from sklearn.impute import SimpleImputer
-    # import numpy as np
-    # simpleimputer_numric = SimpleImputer(missing_values=np.nan)
-    # impute_data[numric_features] = pd.DataFrame(data=simpleimputer_numric.fit_transform(after_del_data[numric_features]), columns=numric_features)
-    # print('数值型特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
-    # 字符型
-    # string_features_most_frequent = impute_data[string_features].mode()
-    # print('字符型特征众数：\n', string_features_most_frequent) if SHOW_LOG == True else ()
-    # for col in string_features_most_frequent.columns:
-    #     simpleimputer_string = SimpleImputer(missing_values=np.nan, strategy="constant", fill_value=string_features_most_frequent[col])
-    #     impute_data[col] = pd.DataFrame(data=simpleimputer_string.fit_transform(after_del_data[col].values.reshape(-1, 1)), columns=[col])
-    # print('字符型特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
-
-    # from sklearn.pipeline import Pipeline
-    # pipeline_2 = Pipeline([('del_Columns', ColumnDeletion()),('impute_miss', MissingImputation())])
-    # impute_data = pipeline_2.fit_transform(ori_data)
-    # print('特征补缺失值：\n', impute_data.head(10)) if SHOW_LOG == True else ()
-
-    # 对于字符型，先标签化转为数值型后按数值型处理
-    # 对于数值型，人为确定特征类型为连续型还是类别型，分别处理
-    # 另：后续还需考虑如果特征标签未知，如何使用程序初步判断类型
-
-    # 字符型，直接标签化，其中对于有序的字符型特征，标签化后就可直接使用，后续对于无序的字符型特征再进行onehot
-    # ordinal_encode_data = impute_data.copy()
-    # if len(string_features) > 0:
-    #     from sklearn.preprocessing import OrdinalEncoder
-    #     OrdinalEncoder().fit(impute_data[string_features]).categories_
-    #     ordinal_encode_data[string_features] = pd.DataFrame(
-    #         data=OrdinalEncoder().fit_transform(impute_data[string_features]),
-    #         columns=string_features)
-    #     print('字符型特征标签化：\n', ordinal_encode_data[string_features]) if SHOW_LOG == True else ()
-    # else:
-    #     print('无需要标签化的数据！') if SHOW_LOG == True else ()
-    pipeline_3 = Pipeline([('del_Columns', ColumnDeletion()),('impute_miss', MissingImputation()),('digi_string', Digitization())])
-    ordinal_encode_data = pipeline_3.fit_transform(ori_data)
-    # print('字符型特征标签化：\n', ordinal_encode_data.head(10)) if SHOW_LOG == True else ()
-
-    # 连续型：二值化
-    bin_con_data = ordinal_encode_data.copy()
-    BINARY_CONTINUOUS_FEATURES = selectFeatures(del_ana_data, ['Binarizer'], 'transform', 'colname')    # 需二值化的连续型特征
-    BINARY_THRESHOLD = selectFeatures(del_ana_data, ['Binarizer'], 'transform', 'threshold')    # 二值化的阈值
-    if len(BINARY_CONTINUOUS_FEATURES) > 0:
-        from sklearn.preprocessing import Binarizer
-        for i in range(len(BINARY_CONTINUOUS_FEATURES)):
-            binarizer = Binarizer(threshold = int(float(BINARY_THRESHOLD[i])))
-            bin_data = pd.DataFrame(data=binarizer.fit_transform(bin_con_data[BINARY_CONTINUOUS_FEATURES[i]].values.reshape(-1, 1)), columns=[BINARY_CONTINUOUS_FEATURES[i]])
-            print('连续型特征二值化：\n',bin_data.head(10)) if SHOW_LOG == True else ()
-            bin_con_data[BINARY_CONTINUOUS_FEATURES[i]] = bin_data
-        print('加入二值化后的数据为：\n', bin_con_data[BINARY_CONTINUOUS_FEATURES].head(10)) if SHOW_LOG == True else ()
-    else:
-        print('无需要二值化的数据！') if SHOW_LOG == True else ()
-
-    # 连续型：标准化(包括StandardScaler, MinMaxScaler, MaxAbsScaler等)
-    CONTINUOUS_FEATURES = bin_con_data.columns    # 连续型特征
-    scale_con_data = bin_con_data.copy()
-    if len(CONTINUOUS_FEATURES) > 0:
-        from sklearn.preprocessing import MinMaxScaler
-        minmaxScaler = MinMaxScaler().fit(scale_con_data[CONTINUOUS_FEATURES])
-        scale_con_data = pd.DataFrame(data=minmaxScaler.fit_transform(scale_con_data[CONTINUOUS_FEATURES]), columns=CONTINUOUS_FEATURES)
-        print('连续型特征标准化：\n',scale_con_data.head(10)) if SHOW_LOG == True else ()
-    else:
-        print('无需要标准化的数据！') if SHOW_LOG == True else ()
-
-    # 类别型，对于无序特征，onehot
-    DISORDER_CATEGORICAL_FEATURES = selectFeatures(del_ana_data, ['OneHotEncoder'], 'transform', 'colname')    # 无序类别型特征
-    encode_disorder_cat_data = scale_con_data.copy()
-    if len(DISORDER_CATEGORICAL_FEATURES) > 0:
-        from sklearn.preprocessing import OneHotEncoder
-        if len(DISORDER_CATEGORICAL_FEATURES) == 1:
-            onehotencoder = OneHotEncoder(categories='auto').fit(scale_con_data[DISORDER_CATEGORICAL_FEATURES])
-            tmp_l = encode_disorder_cat_data.drop(DISORDER_CATEGORICAL_FEATURES,axis=1)
-            tmp_r = pd.DataFrame(data=onehotencoder.fit_transform(scale_con_data[DISORDER_CATEGORICAL_FEATURES]).toarray(), columns=('onehot_'+ str(item) for item in range(len(onehotencoder.categories_[0]))))
-            encode_disorder_cat_data = pd.concat([tmp_l, tmp_r], axis=1, ignore_index=False)
-        else:
-            onehotencoder = OneHotEncoder(categories='auto').fit(scale_con_data[DISORDER_CATEGORICAL_FEATURES])
-            tmp_l = encode_disorder_cat_data.drop(DISORDER_CATEGORICAL_FEATURES,axis=1)
-            tmp_r = pd.DataFrame(data=onehotencoder.fit_transform(scale_con_data[DISORDER_CATEGORICAL_FEATURES]).toarray(), columns=('onehot_'+ str(item) for item in range(len(np.append(*onehotencoder.categories_)))))
-            encode_disorder_cat_data = pd.concat([tmp_l, tmp_r], axis=1, ignore_index=False)
-        print('无序类别型特征独热编码：\n', encode_disorder_cat_data.head(10)) if SHOW_LOG == True else ()
-    else:
-        print('无需要onehot的数据！') if SHOW_LOG == True else ()
-
-    # ------------------------------- END ------------------------------- #
-
-    # ----------------------------- 特征工程 ----------------------------- #
-
-    # 生成算术运算特征
-    MINUS_FIRST_FEATURES = ['ficoRangeLow']
-    MINUS_SECOND_FRATURES = ['ficoRangeHigh']
-    cal_minus_data = encode_disorder_cat_data.copy()
-    if len(MINUS_FIRST_FEATURES) > 0:
-        cal_minus_data = minusFeatures(encode_disorder_cat_data, MINUS_FIRST_FEATURES, MINUS_SECOND_FRATURES)
-        print('生成算术运算特征数据：\n', cal_minus_data.head(10)) if SHOW_LOG == True else ()
-    else:
-        print('无需要算术相减的数据！') if SHOW_LOG == True else ()
-
-    # 生成多项式特征（交叉特征）
-    POLYNOMIAL_FEATURES = []    # 需生成多项式特征的特征
-    polynomial_data = pd.DataFrame()
-    if len(POLYNOMIAL_FEATURES) > 0:
-        from sklearn.preprocessing import PolynomialFeatures
-        polynomialfeatures = PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)
-        polynomial_data = pd.DataFrame(data=polynomialfeatures.fit_transform(cal_minus_data[POLYNOMIAL_FEATURES]), columns=('poly_'+ str(item) for item in range(polynomialfeatures.n_output_features_)))
-        print('生成多项式特征数据：\n', polynomial_data) if SHOW_LOG == True else ()
-    else:
-        print('无需生成多项式特征！') if SHOW_LOG == True else ()
-    poly_data = pd.concat([cal_minus_data, polynomial_data], axis=1, ignore_index=False)
-    print('加入多项式特征后数据：\n', poly_data) if SHOW_LOG == True else ()
-
-    # 过滤法：方差选择、卡方检验（适合初期特征数目较多时，筛掉与标签明显不相关的特征）
-    # 1. 方差选择：只筛掉方差为0，即只有一种取值的特征
-    VARIANCE_THRESHOLD = 0    # 方差选择阈值
-    from sklearn.feature_selection import VarianceThreshold
-    variancethreshold = VarianceThreshold(threshold=VARIANCE_THRESHOLD)
-    var_sel_data = pd.DataFrame(data=variancethreshold.fit_transform(poly_data), columns=(poly_data.columns[item] for item in variancethreshold.get_support(indices=True)))
-    print('方差选择后的数据：\n', var_sel_data) if SHOW_LOG == True else ()
+    pipeline = Pipeline([('del_Columns', ColumnDeletion()),
+                           ('impute_miss', MissingImputation()),
+                           ('digi_string', Digitization()),
+                           ('bin', Binaryzation()),
+                           ('scaler', Standardization()),
+                           ('onehot', OneHotEncoding()),
+                           ('cal_features', FeatureCalculation()),
+                           ('poly_features', FeaturePolynomialization()),
+                           ('sel_var', VarianceSelection())])
+    var_sel_data = pipeline.fit_transform(ori_data)
 
     # 2. 卡方检验特征选择，注，运行时间较长，建议第一次跑完之后把筛选后的特征列保存，之后不再跑此过程
     chi2_sel_data = var_sel_data.copy()
@@ -332,30 +374,6 @@ def Main():
     # ------------------------------------------------------------------- #
 
 
-
-def selectFeatures(data, match_char_list, match_col, output_col):
-    # 工具方法，用于将数据中的每个字段根据不同的匹配条件筛选出来
-    # data: 数据
-    # match_char_list: 数据中指定的匹配关键字
-    # match_col: 指定数据中要匹配目标字段的列名
-    # output_col: 指定匹配成功的行中要输出的字段
-    classified_features = []
-    for i in data[match_col].index:
-        if data[match_col][i] != 'nan':
-            for j in match_char_list:
-                tmp = ''
-                if j in str(data[match_col][i]):
-                    tmp = str(data[output_col][i])
-                if len(tmp) > 0:
-                    classified_features.append(tmp)
-                    break
-    return classified_features
-
-def minusFeatures(X, first_operators, second_operators):
-    for i in range(len(first_operators)):
-        X[first_operators[i]+'-'+second_operators[i]] = X[first_operators[i]] - X[second_operators[i]]
-        X.drop([first_operators[i], second_operators[i]], 1, inplace=True)
-    return X
 
 def plotEmbedded(algorithm, n_estimators, X, y, partitions, cv):
     # time warning #
