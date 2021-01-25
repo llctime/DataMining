@@ -458,6 +458,32 @@ def Main():
 
     # ------------------------------------------------------------------- #
 
+    # 1.数据切分
+    from sklearn.model_selection import train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(chi2_sel_data, ori_data[TARGET], test_size=0.33, random_state=42)
+    # 2.构建模型
+    from sklearn.ensemble import GradientBoostingClassifier
+    # Accuracy: 0.8048
+    # AUC
+    # Score(Train): 0.719429
+    # gbdt = GradientBoostingClassifier(learning_rate=0.05, n_estimators=120,max_depth=7, min_samples_leaf =60,
+    #            min_samples_split =1200, max_features=9, subsample=0.7, random_state=10)
+    gbdt = GradientBoostingClassifier(loss='deviance', learning_rate=0.005, n_estimators=100,
+                 subsample=1.0, min_samples_split=2,
+                 min_samples_leaf=1, min_weight_fraction_leaf=0.,
+                 max_depth=3, random_state=None,
+                 max_features=None)
+    # 3.训练模型
+    gbdt.fit(X_train, y_train)
+    # 3.测试
+    y_pred = gbdt.predict(X_test)
+    y_predprob = gbdt.predict_proba(X_test)[:, 1]
+    # 4.模型校验
+    from sklearn import metrics
+    print("Accuracy : %.4g" % metrics.accuracy_score(y_test, y_pred))
+    print("AUC Score (Train): %f" % metrics.roc_auc_score(y_test, y_predprob))
+    pass
+
 
 
 if __name__ == "__main__":
