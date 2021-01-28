@@ -399,6 +399,32 @@ class PCADecomposition(BaseEstimator, TransformerMixin):
         # print('PCA降维后的数据：\n', dec_pca_data) if SHOW_LOG == True else ()
         return dec_pca_data
 
+class ModelTraining(BaseEstimator, TransformerMixin):
+    # 训练模型
+    def __init__(self, label_data, algorithm, params):
+        self.label_data = label_data
+        self.algorithm = algorithm
+        self.params = params
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        # 1.数据切分
+        from sklearn.model_selection import train_test_split
+        X_train, X_test, y_train, y_test = train_test_split(X, self.label_data, test_size=0.33, random_state=42)
+        # 2.构建模型
+        estimator = ALGORITHMS.get(self.algorithm)(**self.params)
+        # 3.训练模型
+        estimator.fit(X_train, y_train)
+        # 4.验证
+        y_pred = estimator.predict(X_test)
+        y_predprob = estimator.predict_proba(X_test)[:, 1]
+        # 5.模型校验
+        from sklearn import metrics
+        print("Accuracy : %.4g" % metrics.accuracy_score(y_test, y_pred))
+        print("AUC Score (Train): %f" % metrics.roc_auc_score(y_test, y_predprob))
+
 def Main():
 
     # 导入原始数据
@@ -408,6 +434,30 @@ def Main():
 
     # 初步判断分类、删除字段
     makeAnalysisFile(ANALYSIS_FILEPATH, ori_data)
+
+    gbdt_params = {
+        'loss' : 'deviance',
+        'learning_rate' : 0.005,
+        'n_estimators' : 100,
+        'subsample' : 1.0,
+        'criterion' : 'friedman_mse',
+        'min_samples_split' : 2,
+        'min_samples_leaf' : 1,
+        'min_weight_fraction_leaf' : 0.,
+        'max_depth' : 3,
+        'min_impurity_decrease' : 0.,
+        'min_impurity_split' : None,
+        'init' : None,
+        'random_state' : None,
+        'max_features' : None,
+        'verbose' : 0,
+        'max_leaf_nodes' : None,
+        'warm_start' : False,
+        'validation_fraction' : 0.1,
+        'n_iter_no_change' : None,
+        'tol' : 1e-4,
+        'ccp_alpha' : 0.
+    }
 
     from sklearn.pipeline import Pipeline
     pipeline = Pipeline([('del_Columns', ColumnDeletion()),
@@ -419,8 +469,9 @@ def Main():
                            ('cal_features', FeatureCalculation()),
                            ('poly_features', FeaturePolynomialization()),
                            ('sel_var', VarianceSelection()),
-                           ('chi2', ChisquareSelection())])
-    chi2_sel_data = pipeline.fit_transform(ori_data)
+                           ('chi2', ChisquareSelection()),
+                           ('train', ModelTraining(TRAIN_LABEL, 'GBDT', gbdt_params))])
+    pipeline.fit_transform(ori_data)
 
     # 嵌入法和包装法精筛特征，但参数选择较为依赖启发式策略，故需根据结果好坏决定是否选用以下的选择方法
 
@@ -457,32 +508,6 @@ def Main():
     # # print('包装法选择后的数据：\n', wrap_sel_data) if SHOW_LOG == True else ()
 
     # ------------------------------------------------------------------- #
-
-    # 1.数据切分
-    from sklearn.model_selection import train_test_split
-    X_train, X_test, y_train, y_test = train_test_split(chi2_sel_data, ori_data[TARGET], test_size=0.33, random_state=42)
-    # 2.构建模型
-    from sklearn.ensemble import GradientBoostingClassifier
-    # Accuracy: 0.8048
-    # AUC
-    # Score(Train): 0.719429
-    # gbdt = GradientBoostingClassifier(learning_rate=0.05, n_estimators=120,max_depth=7, min_samples_leaf =60,
-    #            min_samples_split =1200, max_features=9, subsample=0.7, random_state=10)
-    gbdt = GradientBoostingClassifier(loss='deviance', learning_rate=0.005, n_estimators=100,
-                 subsample=1.0, min_samples_split=2,
-                 min_samples_leaf=1, min_weight_fraction_leaf=0.,
-                 max_depth=3, random_state=None,
-                 max_features=None)
-    # 3.训练模型
-    gbdt.fit(X_train, y_train)
-    # 3.测试
-    y_pred = gbdt.predict(X_test)
-    y_predprob = gbdt.predict_proba(X_test)[:, 1]
-    # 4.模型校验
-    from sklearn import metrics
-    print("Accuracy : %.4g" % metrics.accuracy_score(y_test, y_pred))
-    print("AUC Score (Train): %f" % metrics.roc_auc_score(y_test, y_predprob))
-    pass
 
 
 
