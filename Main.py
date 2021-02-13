@@ -14,6 +14,7 @@ MISSING_VALUES = 'NaN'    # 原始数据缺失值
 
 ANALYSIS_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\天池贷款违约预测训练数据字段分析.csv'
 TARGET = 'isDefault'    # 标签
+ID = 'id'    # 唯一标识
 import pandas as pd
 TRAIN_LABEL = pd.DataFrame()
 ALGORITHMS = {
@@ -411,6 +412,7 @@ class ModelTraining(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
+
         # 1.数据切分
         from sklearn.model_selection import train_test_split
         X_train, X_test, y_train, y_test = train_test_split(X, self.label_data, test_size=0.33, random_state=42)
@@ -433,7 +435,7 @@ class ModelTraining(BaseEstimator, TransformerMixin):
         hour = str(time.localtime().tm_hour)
         minute = str(time.localtime().tm_min)
         second = str(time.localtime().tm_sec)
-        model_name = self.algorithm+'_'+str(metrics.roc_auc_score(y_test, y_predprob))+'_'+year+month+day+hour+minute+second+'.pickle'
+        model_name = self.algorithm+'_'+str(metrics.roc_auc_score(y_test, y_predprob))+'_'+year+month+day+hour+minute+second+'.pkl'
         import os
         if not os.path.exists(MODEL_FILEPATH):
             os.makedirs(MODEL_FILEPATH)
