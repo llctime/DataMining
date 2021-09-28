@@ -5,7 +5,7 @@
 # @Time: 2021/2/2 23:04
 
 # 常量
-SHOW_LOG = True    # 日志输出标识
+SHOW_LOG = False    # 日志输出标识
 
 TRAIN_DATA_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\data\\loan\\train.csv'    # 训练数据文件路径
 TEST_DATA_FILEPATH = 'D:\\Dev\\Projects\\DataMining\\data\\loan\\testA.csv'    # 测试数据文件路径
